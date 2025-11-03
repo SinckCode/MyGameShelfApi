@@ -1,10 +1,12 @@
 import Vapor
 
-// configures your application
 public func configure(_ app: Application) async throws {
-    // uncomment to serve files from /Public folder
-    // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+    let cors = CORSMiddleware(configuration: .init(
+        allowedOrigin: .all,
+        allowedMethods: [.GET, .POST, .OPTIONS],
+        allowedHeaders: [.accept, .authorization, .contentType, .origin]
+    ))
+    app.middleware.use(cors)
 
-    // register routes
     try routes(app)
 }

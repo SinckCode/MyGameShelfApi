@@ -19,13 +19,12 @@ x-shared_environment: &shared_environment
   LOG_LEVEL: ${LOG_LEVEL:-debug}
 
 services:
-  api:
-    image: ghcr.io/sinckcode/mygameshelfapi:latest
-    container_name: mygameshelf_api
+  app:
+    image: mygameshelfapi:latest
+    build:
+      context: .
     environment:
       <<: *shared_environment
-      PORT: "8080"
     ports:
       - "8080:8080"
-    restart: unless-stopped
-
+    command: ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]
