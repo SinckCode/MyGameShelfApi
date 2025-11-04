@@ -40,7 +40,8 @@ struct CreateCompanyRequest: Content {
     let imagenURL: String
 }
 
-// Auth DTOs – EXACTAMENTE como tus data classes:
+// MARK: - Auth DTOs (alineados con Android)
+
 struct RegisterDTO: Content {
     let name: String
     let email: String
@@ -52,10 +53,12 @@ struct LoginDTO: Content {
     let password: String
 }
 
+/// Respuesta unificada para register y login
+/// Android usa: success, message, userId
 struct AuthResponseDTO: Content {
+    let success: Bool
     let message: String
-    let isLogged: Bool
-    let userId: Int
+    let userId: UUID?
 }
 
 // MARK: - Rutas
@@ -379,24 +382,32 @@ public func routes(_ app: Application) throws {
     auth.post("register") { req async throws -> AuthResponseDTO in
         let body = try req.content.decode(RegisterDTO.self)
 
+        // ¿El correo ya existe?
         if try await User.query(on: req.db)
             .filter(\.$email == body.email)
             .first() != nil
         {
-            throw Abort(.badRequest, reason: "El correo ya está registrado")
+            return AuthResponseDTO(
+                success: false,
+                message: "El correo ya está registrado",
+                userId: nil
+            )
         }
 
+        // Crear usuario
         let user = User(
             name: body.name,
             email: body.email,
-            passwordHash: body.password
+            passwordHash: body.password // TODO: hash real
         )
         try await user.save(on: req.db)
 
+        let id = try user.requireID()
+
         return AuthResponseDTO(
+            success: true,
             message: "Registro exitoso",
-            isLogged: true,
-            userId: 1
+            userId: id
         )
     }
 
@@ -404,21 +415,33 @@ public func routes(_ app: Application) throws {
     auth.post("login") { req async throws -> AuthResponseDTO in
         let body = try req.content.decode(LoginDTO.self)
 
+        // Buscar usuario por email
         guard let user = try await User.query(on: req.db)
             .filter(\.$email == body.email)
             .first()
         else {
-            throw Abort(.unauthorized, reason: "Credenciales inválidas")
+            return AuthResponseDTO(
+                success: false,
+                message: "Credenciales inválidas",
+                userId: nil
+            )
         }
 
+        // Validar contraseña (por ahora comparación directa)
         guard user.passwordHash == body.password else {
-            throw Abort(.unauthorized, reason: "Credenciales inválidas")
+            return AuthResponseDTO(
+                success: false,
+                message: "Credenciales inválidas",
+                userId: nil
+            )
         }
+
+        let id = try user.requireID()
 
         return AuthResponseDTO(
+            success: true,
             message: "Login exitoso",
-            isLogged: true,
-            userId: 1
+            userId: id
         )
     }
 }
