@@ -49,22 +49,23 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: [self-hosted, myGameShelf]   # <- etiqueta de tu runner en Proxmox
+    runs-on: [self-hosted, myGameShelf]   # etiqueta de tu runner en Proxmox
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Copiar docker-compose al servidor
         run: |
-          mkdir -p ~/myGameShelf
-          cp docker-compose.yml ~/myGameShelf/docker-compose.yml
+          mkdir -p "$HOME/myGameShelf"
+          cp docker-compose.yml "$HOME/myGameShelf/docker-compose.yml"
 
       - name: Levantar contenedores
-        working-directory: ~/myGameShelf
         run: |
+          cd "$HOME/myGameShelf"
           docker compose -f docker-compose.yml pull
           docker compose -f docker-compose.yml up -d --remove-orphans
 
       - name: Estado de los servicios
-        working-directory: ~/myGameShelf
-        run: docker compose -f docker-compose.yml ps
+        run: |
+          cd "$HOME/myGameShelf"
+          docker compose -f docker-compose.yml ps
