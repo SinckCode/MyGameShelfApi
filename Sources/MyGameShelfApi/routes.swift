@@ -1,8 +1,9 @@
 import Vapor
+import Fluent
 
-// MARK: - Modelos / DTOs
+// MARK: - DTOs que ve Android
 
-struct Game: Content {
+struct GameDTO: Content {
     let id: Int
     let nombre: String
     let descripcion: String
@@ -13,7 +14,7 @@ struct Game: Content {
     let imagenURL: String
 }
 
-struct Company: Content {
+struct CompanyDTO: Content {
     let id: Int
     let nombre: String
     let fundacion: Int
@@ -21,6 +22,25 @@ struct Company: Content {
     let imagenURL: String
 }
 
+// DTOs para crear (body de los POST / PUT)
+struct CreateGameRequest: Content {
+    let nombre: String
+    let descripcion: String
+    let rating: Double
+    let plataformas: [String]
+    let genero: String
+    let precio: Double
+    let imagenURL: String
+}
+
+struct CreateCompanyRequest: Content {
+    let nombre: String
+    let fundacion: Int
+    let historia: String
+    let imagenURL: String
+}
+
+// Auth DTOs – EXACTAMENTE como tus data classes:
 struct RegisterDTO: Content {
     let name: String
     let email: String
@@ -32,7 +52,7 @@ struct LoginDTO: Content {
     let password: String
 }
 
-struct AuthResponse: Content {
+struct AuthResponseDTO: Content {
     let message: String
     let isLogged: Bool
     let userId: Int
@@ -47,105 +67,356 @@ public func routes(_ app: Application) throws {
         ["status": "ok"]
     }
 
-    // ---------- Datos dummy (luego los sacamos de BD) ----------
-
-    let demoGames: [Game] = [
-        .init(
-            id: 1,
-            nombre: "Street Fighter 6",
-            descripcion: "Juego de peleas competitivo",
-            rating: 4.7,
-            plataformas: ["PS5","PC","Xbox Series"],
-            genero: "Lucha",
-            precio: 59.99,
-            imagenURL: "https://m.media-amazon.com/images/I/61sBcZGwLFL._AC_.jpg"
-        ),
-        .init(
-            id: 2,
-            nombre: "Monster Hunter World",
-            descripcion: "Acción RPG de cacería de monstruos",
-            rating: 4.6,
-            plataformas: ["PS4","PC","Xbox One"],
-            genero: "Acción",
-            precio: 39.99,
-            imagenURL: "https://m.media-amazon.com/images/I/81ptcMaPW6L._AC_SL1500_.jpg"
-        )
-    ]
-
-    let demoCompanies: [Company] = [
-        .init(
-            id: 1,
-            nombre: "Capcom",
-            fundacion: 1979,
-            historia: "Compañía japonesa responsable de Street Fighter, Monster Hunter, Resident Evil, etc.",
-            imagenURL: "https://upload.wikimedia.org/wikipedia/commons/2/2f/Capcom_logo.png"
-        ),
-        .init(
-            id: 2,
-            nombre: "SEGA",
-            fundacion: 1960,
-            historia: "Histórica compañía japonesa creadora de Sonic, Yakuza, etc.",
-            imagenURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/SEGA_logo_JPN.svg/1200px-SEGA_logo_JPN.svg.png"
-        )
-    ]
-
-    // ---------- Games ----------
-
-    app.get("games") { _ in
-        demoGames
+    app.post("test") { req async throws -> String in
+        return "POST /test OK"
     }
 
-    app.get("games", ":id") { req -> Game in
+    // =========================================================
+    //                      GAMES (sin /api)
+    // =========================================================
+
+    // GET /games
+    app.get("games") { req async throws -> [GameDTO] in
+        let games = try await GameModel.query(on: req.db).all()
+        return games.map { $0.toDTO() }
+    }
+
+    // GET /games/:id
+    app.get("games", ":id") { req async throws -> GameDTO in
         guard let id = req.parameters.get("id", as: Int.self) else {
             throw Abort(.badRequest, reason: "id inválido")
         }
-        guard let game = demoGames.first(where: { $0.id == id }) else {
-            throw Abort(.notFound, reason: "No se encontró el juego")
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
         }
-        return game
+        return game.toDTO()
     }
 
-    // ---------- Companies ----------
+    // POST /games (crear)
+    app.post("games") { req async throws -> GameDTO in
+        let body = try req.content.decode(CreateGameRequest.self)
 
-    app.get("companies") { _ in
-        demoCompanies
+        let game = GameModel(
+            nombre: body.nombre,
+            descripcion: body.descripcion,
+            rating: body.rating,
+            plataformas: body.plataformas,
+            genero: body.genero,
+            precio: body.precio,
+            imagenURL: body.imagenURL
+        )
+
+        try await game.save(on: req.db)
+        return game.toDTO()
     }
 
-    app.get("companies", ":id") { req -> Company in
+    // PUT /games/:id (actualizar)
+    app.put("games", ":id") { req async throws -> GameDTO in
         guard let id = req.parameters.get("id", as: Int.self) else {
             throw Abort(.badRequest, reason: "id inválido")
         }
-        guard let company = demoCompanies.first(where: { $0.id == id }) else {
-            throw Abort(.notFound, reason: "No se encontró la compañía")
+
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
         }
-        return company
+
+        let body = try req.content.decode(CreateGameRequest.self)
+
+        game.nombre = body.nombre
+        game.descripcion = body.descripcion
+        game.rating = body.rating
+        game.plataformas = body.plataformas
+        game.genero = body.genero
+        game.precio = body.precio
+        game.imagenURL = body.imagenURL
+
+        try await game.save(on: req.db)
+        return game.toDTO()
     }
 
-    // ---------- Auth (demo) ----------
+    // DELETE /games/:id (eliminar)
+    app.delete("games", ":id") { req async throws -> HTTPStatus in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
+        }
+
+        try await game.delete(on: req.db)
+        return .noContent
+    }
+
+    // =========================================================
+    //                  COMPANIES (sin /api)
+    // =========================================================
+
+    // GET /companies
+    app.get("companies") { req async throws -> [CompanyDTO] in
+        let companies = try await CompanyModel.query(on: req.db).all()
+        return companies.map { $0.toDTO() }
+    }
+
+    // GET /companies/:id
+    app.get("companies", ":id") { req async throws -> CompanyDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+        return company.toDTO()
+    }
+
+    // POST /companies (crear)
+    app.post("companies") { req async throws -> CompanyDTO in
+        let body = try req.content.decode(CreateCompanyRequest.self)
+
+        let company = CompanyModel(
+            nombre: body.nombre,
+            fundacion: body.fundacion,
+            historia: body.historia,
+            imagenURL: body.imagenURL
+        )
+
+        try await company.save(on: req.db)
+        return company.toDTO()
+    }
+
+    // PUT /companies/:id (actualizar)
+    app.put("companies", ":id") { req async throws -> CompanyDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+
+        let body = try req.content.decode(CreateCompanyRequest.self)
+
+        company.nombre = body.nombre
+        company.fundacion = body.fundacion
+        company.historia = body.historia
+        company.imagenURL = body.imagenURL
+
+        try await company.save(on: req.db)
+        return company.toDTO()
+    }
+
+    // DELETE /companies/:id (eliminar)
+    app.delete("companies", ":id") { req async throws -> HTTPStatus in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+
+        try await company.delete(on: req.db)
+        return .noContent
+    }
+
+    // =========================================================
+    //                  Versión /api/...
+    // =========================================================
+
+    let api = app.grouped("api")
+
+    // -------- GAMES /api/games --------
+
+    // GET /api/games
+    api.get("games") { req async throws -> [GameDTO] in
+        let games = try await GameModel.query(on: req.db).all()
+        return games.map { $0.toDTO() }
+    }
+
+    // GET /api/games/:id
+    api.get("games", ":id") { req async throws -> GameDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
+        }
+        return game.toDTO()
+    }
+
+    // POST /api/games (crear)
+    api.post("games") { req async throws -> GameDTO in
+        let body = try req.content.decode(CreateGameRequest.self)
+
+        let game = GameModel(
+            nombre: body.nombre,
+            descripcion: body.descripcion,
+            rating: body.rating,
+            plataformas: body.plataformas,
+            genero: body.genero,
+            precio: body.precio,
+            imagenURL: body.imagenURL
+        )
+
+        try await game.save(on: req.db)
+        return game.toDTO()
+    }
+
+    // PUT /api/games/:id (actualizar)
+    api.put("games", ":id") { req async throws -> GameDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
+        }
+
+        let body = try req.content.decode(CreateGameRequest.self)
+
+        game.nombre = body.nombre
+        game.descripcion = body.descripcion
+        game.rating = body.rating
+        game.plataformas = body.plataformas
+        game.genero = body.genero
+        game.precio = body.precio
+        game.imagenURL = body.imagenURL
+
+        try await game.save(on: req.db)
+        return game.toDTO()
+    }
+
+    // DELETE /api/games/:id (eliminar)
+    api.delete("games", ":id") { req async throws -> HTTPStatus in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let game = try await GameModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Juego no encontrado")
+        }
+
+        try await game.delete(on: req.db)
+        return .noContent
+    }
+
+    // -------- COMPANIES /api/companies --------
+
+    // GET /api/companies
+    api.get("companies") { req async throws -> [CompanyDTO] in
+        let companies = try await CompanyModel.query(on: req.db).all()
+        return companies.map { $0.toDTO() }
+    }
+
+    // GET /api/companies/:id
+    api.get("companies", ":id") { req async throws -> CompanyDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+        return company.toDTO()
+    }
+
+    // POST /api/companies (crear)
+    api.post("companies") { req async throws -> CompanyDTO in
+        let body = try req.content.decode(CreateCompanyRequest.self)
+
+        let company = CompanyModel(
+            nombre: body.nombre,
+            fundacion: body.fundacion,
+            historia: body.historia,
+            imagenURL: body.imagenURL
+        )
+
+        try await company.save(on: req.db)
+        return company.toDTO()
+    }
+
+    // PUT /api/companies/:id (actualizar)
+    api.put("companies", ":id") { req async throws -> CompanyDTO in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+
+        let body = try req.content.decode(CreateCompanyRequest.self)
+
+        company.nombre = body.nombre
+        company.fundacion = body.fundacion
+        company.historia = body.historia
+        company.imagenURL = body.imagenURL
+
+        try await company.save(on: req.db)
+        return company.toDTO()
+    }
+
+    // DELETE /api/companies/:id (eliminar)
+    api.delete("companies", ":id") { req async throws -> HTTPStatus in
+        guard let id = req.parameters.get("id", as: Int.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let company = try await CompanyModel.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Compañía no encontrada")
+        }
+
+        try await company.delete(on: req.db)
+        return .noContent
+    }
+
+    // =========================================================
+    //                      AUTH (con BD)
+    // =========================================================
 
     let auth = app.grouped("auth")
 
     // POST /auth/register
-    auth.post("register") { req -> AuthResponse in
+    auth.post("register") { req async throws -> AuthResponseDTO in
         let body = try req.content.decode(RegisterDTO.self)
-        print("REGISTER demo: \(body.email)")
 
-        // por ahora respondemos un userId fijo (1)
-        return AuthResponse(
-            message: "Registro exitoso (demo)",
+        if try await User.query(on: req.db)
+            .filter(\.$email == body.email)
+            .first() != nil
+        {
+            throw Abort(.badRequest, reason: "El correo ya está registrado")
+        }
+
+        let user = User(
+            name: body.name,
+            email: body.email,
+            passwordHash: body.password
+        )
+        try await user.save(on: req.db)
+
+        return AuthResponseDTO(
+            message: "Registro exitoso",
             isLogged: true,
             userId: 1
         )
     }
 
     // POST /auth/login
-    auth.post("login") { req -> AuthResponse in
+    auth.post("login") { req async throws -> AuthResponseDTO in
         let body = try req.content.decode(LoginDTO.self)
-        print("LOGIN demo: \(body.email)")
 
-        // aquí luego validaremos contra BD; por ahora siempre OK
-        return AuthResponse(
-            message: "Login exitoso (demo)",
+        guard let user = try await User.query(on: req.db)
+            .filter(\.$email == body.email)
+            .first()
+        else {
+            throw Abort(.unauthorized, reason: "Credenciales inválidas")
+        }
+
+        guard user.passwordHash == body.password else {
+            throw Abort(.unauthorized, reason: "Credenciales inválidas")
+        }
+
+        return AuthResponseDTO(
+            message: "Login exitoso",
             isLogged: true,
             userId: 1
         )
