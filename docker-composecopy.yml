@@ -1,0 +1,218 @@
+a ver, recuerda que tenemos esto:
+
+name: Build & Deploy (Self-hosted)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/sinckcode/mygameshelfapi
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, myGameShelf]   # etiqueta de tu runner en Proxmox
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copiar docker-compose al servidor
+        run: |
+          mkdir -p "$HOME/myGameShelf"
+          cp docker-compose.yml "$HOME/myGameShelf/docker-compose.yml"
+
+      - name: Levantar contenedores
+        run: |
+          cd "$HOME/myGameShelf"
+          docker compose -f docker-compose.yml pull
+          docker compose -f docker-compose.yml up -d --remove-orphans
+
+      - name: Estado de los servicios
+        run: |
+          cd "$HOME/myGameShelf"
+          docker compose -f docker-compose.yml ps
+
+# Docker Compose file for Vapor
+#
+# Install Docker on your system to run and test
+# your Vapor app in a production-like environment.
+#
+# Note: This file is intended for testing and does not
+# implement best practices for a production deployment.
+#
+# Learn more: https://docs.docker.com/compose/reference/
+#
+#   Build images: docker compose build
+#      Start app: docker compose up app
+#       Stop all: docker compose down
+#
+
+x-shared_environment: &shared_environment
+  LOG_LEVEL: ${LOG_LEVEL:-debug}
+
+services:
+  db:
+    image: postgres:16
+    container_name: mygameshelf_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mygameshelf_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mygameshelfapi-local
+    container_name: mygameshelf_api
+    environment:
+      <<: *shared_environment
+      PORT: ${PORT}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  mygameshelf_db_data:
+
+# ================================
+# Build image
+# ================================
+FROM swift:6.1-noble AS build
+
+# Install OS updates
+RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    && apt-get -q update \
+    && apt-get -q dist-upgrade -y \
+    && apt-get install -y libjemalloc-dev
+
+# Set up a build area
+WORKDIR /build
+
+# First just resolve dependencies.
+# This creates a cached layer that can be reused
+# as long as your Package.swift/Package.resolved
+# files do not change.
+COPY ./Package.* ./
+RUN swift package resolve \
+        $([ -f ./Package.resolved ] && echo "--force-resolved-versions" || true)
+
+# Copy entire repo into container
+COPY . .
+
+RUN mkdir /staging
+
+# Build the application, with optimizations, with static linking, and using jemalloc
+# N.B.: The static version of jemalloc is incompatible with the static Swift runtime.
+RUN --mount=type=cache,target=/build/.build \
+    swift build -c release \
+        --product MyGameShelfApi \
+        --static-swift-stdlib \
+        -Xlinker -ljemalloc && \
+    # Copy main executable to staging area
+    cp "$(swift build -c release --show-bin-path)/MyGameShelfApi" /staging && \
+    # Copy resources bundled by SPM to staging area
+    find -L "$(swift build -c release --show-bin-path)" -regex '.*\.resources$' -exec cp -Ra {} /staging \;
+
+
+# Switch to the staging area
+WORKDIR /staging
+
+# Copy static swift backtracer binary to staging area
+RUN cp "/usr/libexec/swift/linux/swift-backtrace-static" ./
+
+# Copy any resources from the public directory and views directory if the directories exist
+# Ensure that by default, neither the directory nor any of its contents are writable.
+RUN [ -d /build/Public ] && { mv /build/Public ./Public && chmod -R a-w ./Public; } || true
+RUN [ -d /build/Resources ] && { mv /build/Resources ./Resources && chmod -R a-w ./Resources; } || true
+
+# ================================
+# Run image
+# ================================
+FROM ubuntu:noble
+
+# Make sure all system packages are up to date, and install only essential packages.
+RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
+    && apt-get -q update \
+    && apt-get -q dist-upgrade -y \
+    && apt-get -q install -y \
+      libjemalloc2 \
+      ca-certificates \
+      tzdata \
+# If your app or its dependencies import FoundationNetworking, also install `libcurl4`.
+      # libcurl4 \
+# If your app or its dependencies import FoundationXML, also install `libxml2`.
+      # libxml2 \
+    && rm -r /var/lib/apt/lists/*
+
+# Create a vapor user and group with /app as its home directory
+RUN useradd --user-group --create-home --system --skel /dev/null --home-dir /app vapor
+
+# Switch to the new home directory
+WORKDIR /app
+
+# Copy built executable and any staged resources from builder
+COPY --from=build --chown=vapor:vapor /staging /app
+
+# Provide configuration needed by the built-in crash reporter and some sensible default behaviors.
+ENV SWIFT_BACKTRACE=enable=yes,sanitize=yes,threads=all,images=all,interactive=no,swift-backtrace=./swift-backtrace-static
+
+# Ensure all further commands run as the vapor user
+USER vapor:vapor
+
+# Let Docker bind to port 8080
+EXPOSE 8080
+
+# Start the Vapor service when the image is run, default to listening on 8080 in production environment
+ENTRYPOINT ["./MyGameShelfApi"]
+CMD ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]

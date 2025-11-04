@@ -53,12 +53,30 @@ struct LoginDTO: Content {
     let password: String
 }
 
-/// Respuesta unificada para register y login
-/// Android usa: success, message, userId
+/// Respuesta unificada para register, login y operaciones de auth
+/// Android usa:
+/// data class AuthResponse(
+///     val message : String,
+///     @SerialName("isLogged") val islogged : Boolean,
+///     val userId: String? = null
+/// )
 struct AuthResponseDTO: Content {
-    let success: Bool
     let message: String
-    let userId: UUID?
+    let isLogged: Bool
+    let userId: String?
+}
+
+// DTOs para gestión de usuarios (CRUD)
+struct UserDTO: Content {
+    let id: UUID
+    let name: String
+    let email: String
+}
+
+struct UpdateUserRequest: Content {
+    let name: String?
+    let email: String?
+    let password: String?
 }
 
 // MARK: - Rutas
@@ -373,10 +391,12 @@ public func routes(_ app: Application) throws {
     }
 
     // =========================================================
-    //                      AUTH (con BD)
+    //                      AUTH (con BD + CRUD)
     // =========================================================
 
     let auth = app.grouped("auth")
+
+    // MARK: - Register
 
     // POST /auth/register
     auth.post("register") { req async throws -> AuthResponseDTO in
@@ -388,8 +408,8 @@ public func routes(_ app: Application) throws {
             .first() != nil
         {
             return AuthResponseDTO(
-                success: false,
                 message: "El correo ya está registrado",
+                isLogged: false,
                 userId: nil
             )
         }
@@ -405,11 +425,13 @@ public func routes(_ app: Application) throws {
         let id = try user.requireID()
 
         return AuthResponseDTO(
-            success: true,
             message: "Registro exitoso",
-            userId: id
+            isLogged: true,
+            userId: id.uuidString
         )
     }
+
+    // MARK: - Login
 
     // POST /auth/login
     auth.post("login") { req async throws -> AuthResponseDTO in
@@ -421,8 +443,8 @@ public func routes(_ app: Application) throws {
             .first()
         else {
             return AuthResponseDTO(
-                success: false,
                 message: "Credenciales inválidas",
+                isLogged: false,
                 userId: nil
             )
         }
@@ -430,8 +452,8 @@ public func routes(_ app: Application) throws {
         // Validar contraseña (por ahora comparación directa)
         guard user.passwordHash == body.password else {
             return AuthResponseDTO(
-                success: false,
                 message: "Credenciales inválidas",
+                isLogged: false,
                 userId: nil
             )
         }
@@ -439,9 +461,106 @@ public func routes(_ app: Application) throws {
         let id = try user.requireID()
 
         return AuthResponseDTO(
-            success: true,
             message: "Login exitoso",
-            userId: id
+            isLogged: true,
+            userId: id.uuidString
+        )
+    }
+
+    // MARK: - CRUD de usuarios (Auth como CRUD)
+
+    // GET /auth/users  -> lista de usuarios
+    auth.get("users") { req async throws -> [UserDTO] in
+        let users = try await User.query(on: req.db).all()
+        return try users.map { user in
+            UserDTO(
+                id: try user.requireID(),
+                name: user.name,
+                email: user.email
+            )
+        }
+    }
+
+    // GET /auth/users/:id -> detalle de usuario
+    auth.get("users", ":id") { req async throws -> UserDTO in
+        guard let id = req.parameters.get("id", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "id inválido")
+        }
+
+        guard let user = try await User.find(id, on: req.db) else {
+            throw Abort(.notFound, reason: "Usuario no encontrado")
+        }
+
+        return UserDTO(
+            id: id,
+            name: user.name,
+            email: user.email
+        )
+    }
+
+    // PUT /auth/users/:id -> actualizar usuario
+    auth.put("users", ":id") { req async throws -> AuthResponseDTO in
+        guard let id = req.parameters.get("id", as: UUID.self) else {
+            return AuthResponseDTO(
+                message: "id inválido",
+                isLogged: false,
+                userId: nil
+            )
+        }
+
+        guard let user = try await User.find(id, on: req.db) else {
+            return AuthResponseDTO(
+                message: "Usuario no encontrado",
+                isLogged: false,
+                userId: nil
+            )
+        }
+
+        let body = try req.content.decode(UpdateUserRequest.self)
+
+        if let name = body.name {
+            user.name = name
+        }
+        if let email = body.email {
+            user.email = email
+        }
+        if let password = body.password {
+            user.passwordHash = password // TODO: hash real igual que en register
+        }
+
+        try await user.save(on: req.db)
+
+        return AuthResponseDTO(
+            message: "Usuario actualizado correctamente",
+            isLogged: true,
+            userId: id.uuidString
+        )
+    }
+
+    // DELETE /auth/users/:id -> eliminar usuario
+    auth.delete("users", ":id") { req async throws -> AuthResponseDTO in
+        guard let id = req.parameters.get("id", as: UUID.self) else {
+            return AuthResponseDTO(
+                message: "id inválido",
+                isLogged: false,
+                userId: nil
+            )
+        }
+
+        guard let user = try await User.find(id, on: req.db) else {
+            return AuthResponseDTO(
+                message: "Usuario no encontrado",
+                isLogged: false,
+                userId: nil
+            )
+        }
+
+        try await user.delete(on: req.db)
+
+        return AuthResponseDTO(
+            message: "Usuario eliminado correctamente",
+            isLogged: true,
+            userId: id.uuidString
         )
     }
 }
