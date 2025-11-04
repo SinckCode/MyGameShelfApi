@@ -56,15 +56,15 @@ jobs:
 
       - name: Copiar docker-compose al servidor
         run: |
-          mkdir -p ~/gamevault
-          cp docker-compose.yml ~/gamevault/docker-compose.yml
+          mkdir -p ~/myGameShelf
+          cp docker-compose.yml ~/myGameShelf/docker-compose.yml
 
       - name: Levantar contenedores
-        working-directory: ~/gamevault
+        working-directory: ~/myGameShelf
         run: |
           docker compose -f docker-compose.yml pull
           docker compose -f docker-compose.yml up -d --remove-orphans
 
       - name: Estado de los servicios
-        working-directory: ~/gamevault
+        working-directory: ~/myGameShelf
         run: docker compose -f docker-compose.yml ps
