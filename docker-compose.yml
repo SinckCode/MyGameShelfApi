@@ -29,10 +29,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: mygameshelfapi-local
+    image: ghcr.io/sinckcode/mygameshelfapi:latest
     container_name: mygameshelf_api
     environment:
       <<: *shared_environment
