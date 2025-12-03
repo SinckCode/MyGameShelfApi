@@ -58,7 +58,8 @@ struct LoginDTO: Content {
 /// data class AuthResponse(
 ///     val message : String,
 ///     @SerialName("isLogged") val islogged : Boolean,
-///     val userId: String? = null
+///     val userId: String? = null,
+///     val name: String? = null
 /// )
 struct AuthResponseDTO: Content {
     let message: String
@@ -430,7 +431,7 @@ public func routes(_ app: Application) throws {
             message: "Registro exitoso",
             isLogged: true,
             userId: id.uuidString,
-            name: body.name
+            name: user.name
         )
     }
 
