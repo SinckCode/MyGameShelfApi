@@ -64,6 +64,7 @@ struct AuthResponseDTO: Content {
     let message: String
     let isLogged: Bool
     let userId: String?
+    let name: String?
 }
 
 // DTOs para gestión de usuarios (CRUD)
@@ -410,7 +411,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "El correo ya está registrado",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -427,7 +429,8 @@ public func routes(_ app: Application) throws {
         return AuthResponseDTO(
             message: "Registro exitoso",
             isLogged: true,
-            userId: id.uuidString
+            userId: id.uuidString,
+            name: body.name
         )
     }
 
@@ -445,7 +448,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "Credenciales inválidas",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -454,7 +458,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "Credenciales inválidas",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -463,7 +468,8 @@ public func routes(_ app: Application) throws {
         return AuthResponseDTO(
             message: "Login exitoso",
             isLogged: true,
-            userId: id.uuidString
+            userId: id.uuidString,
+            name: user.name
         )
     }
 
@@ -504,7 +510,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "id inválido",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -512,7 +519,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "Usuario no encontrado",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -533,7 +541,8 @@ public func routes(_ app: Application) throws {
         return AuthResponseDTO(
             message: "Usuario actualizado correctamente",
             isLogged: true,
-            userId: id.uuidString
+            userId: id.uuidString,
+            name: user.name
         )
     }
 
@@ -543,7 +552,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "id inválido",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -551,7 +561,8 @@ public func routes(_ app: Application) throws {
             return AuthResponseDTO(
                 message: "Usuario no encontrado",
                 isLogged: false,
-                userId: nil
+                userId: nil,
+                name: nil
             )
         }
 
@@ -560,7 +571,8 @@ public func routes(_ app: Application) throws {
         return AuthResponseDTO(
             message: "Usuario eliminado correctamente",
             isLogged: true,
-            userId: id.uuidString
+            userId: id.uuidString,
+            name: user.name
         )
     }
 }
