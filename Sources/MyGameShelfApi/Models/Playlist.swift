@@ -1,7 +1,7 @@
 import Fluent
 import Vapor
 
-final class Playlist: Model, Content {
+final class Playlist: Model, Content, @unchecked Sendable {
     static let schema = "playlists"
 
     @ID(key: .id)

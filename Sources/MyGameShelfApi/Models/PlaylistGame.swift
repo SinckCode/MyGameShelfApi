@@ -1,7 +1,7 @@
 import Fluent
 import Vapor
 
-final class PlaylistGame: Model, Content {
+final class PlaylistGame: Model, Content, @unchecked Sendable {
     static let schema = "playlist_games"
 
     @ID(key: .id)
@@ -10,7 +10,6 @@ final class PlaylistGame: Model, Content {
     @Parent(key: "playlist_id")
     var playlist: Playlist
 
-    // suponiendo que Game.id es Int
     @Field(key: "game_id")
     var gameId: Int
 
