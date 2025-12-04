@@ -40,6 +40,30 @@ struct CreateCompanyRequest: Content {
     let imagenURL: String
 }
 
+// MARK: - Playlists DTOs
+
+struct PlaylistDTO: Content {
+    let id: UUID
+    let name: String
+    let gamesCount: Int
+}
+
+struct PlaylistDetailDTO: Content {
+    let id: UUID
+    let name: String
+    let gameIds: [Int]
+}
+
+struct CreatePlaylistRequest: Content {
+    let name: String
+    let userId: UUID
+}
+
+struct UpdatePlaylistGamesRequest: Content {
+    let userId: UUID
+    let gameIds: [Int]
+}
+
 // MARK: - Auth DTOs (alineados con Android)
 
 struct RegisterDTO: Content {
@@ -54,13 +78,6 @@ struct LoginDTO: Content {
 }
 
 /// Respuesta unificada para register, login y operaciones de auth
-/// Android usa:
-/// data class AuthResponse(
-///     val message : String,
-///     @SerialName("isLogged") val islogged : Boolean,
-///     val userId: String? = null,
-///     val name: String? = null
-/// )
 struct AuthResponseDTO: Content {
     let message: String
     let isLogged: Bool
@@ -389,6 +406,125 @@ public func routes(_ app: Application) throws {
         }
 
         try await company.delete(on: req.db)
+        return .noContent
+    }
+
+    // -------- PLAYLISTS /api/playlists --------
+
+    let playlists = api.grouped("playlists")
+
+    // GET /api/playlists/my?userId=...
+    playlists.get("my") { req async throws -> [PlaylistDTO] in
+        let userId = try req.query.get(UUID.self, at: "userId")
+
+        let playlists = try await Playlist.query(on: req.db)
+            .filter(\.$user.$id == userId)
+            .with(\.$gamesPivot)
+            .all()
+
+        return try playlists.map { playlist in
+            PlaylistDTO(
+                id: try playlist.requireID(),
+                name: playlist.name,
+                gamesCount: playlist.gamesPivot.count
+            )
+        }
+    }
+
+    // POST /api/playlists
+    playlists.post { req async throws -> PlaylistDTO in
+        let body = try req.content.decode(CreatePlaylistRequest.self)
+
+        // opcional: validar que el usuario exista
+        guard try await User.find(body.userId, on: req.db) != nil else {
+            throw Abort(.notFound, reason: "Usuario no encontrado")
+        }
+
+        let playlist = Playlist(
+            name: body.name,
+            userID: body.userId
+        )
+
+        try await playlist.save(on: req.db)
+
+        return PlaylistDTO(
+            id: try playlist.requireID(),
+            name: playlist.name,
+            gamesCount: 0
+        )
+    }
+
+    // GET /api/playlists/:playlistId?userId=...
+    playlists.get(":playlistId") { req async throws -> PlaylistDetailDTO in
+        guard let playlistId = req.parameters.get("playlistId", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "playlistId inválido")
+        }
+        let userId = try req.query.get(UUID.self, at: "userId")
+
+        guard let playlist = try await Playlist.query(on: req.db)
+            .filter(\.$id == playlistId)
+            .filter(\.$user.$id == userId)
+            .with(\.$gamesPivot)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Playlist no encontrada")
+        }
+
+        let gameIds = playlist.gamesPivot.map { $0.gameId }
+
+        return PlaylistDetailDTO(
+            id: try playlist.requireID(),
+            name: playlist.name,
+            gameIds: gameIds
+        )
+    }
+
+    // PUT /api/playlists/:playlistId/games
+    playlists.put(":playlistId", "games") { req async throws -> HTTPStatus in
+        guard let playlistId = req.parameters.get("playlistId", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "playlistId inválido")
+        }
+
+        let body = try req.content.decode(UpdatePlaylistGamesRequest.self)
+
+        guard let playlist = try await Playlist.query(on: req.db)
+            .filter(\.$id == playlistId)
+            .filter(\.$user.$id == body.userId)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Playlist no encontrada")
+        }
+
+        // borrar pivots actuales
+        try await PlaylistGame.query(on: req.db)
+            .filter(\.$playlist.$id == playlistId)
+            .delete()
+
+        // crear pivots nuevos
+        for gameId in body.gameIds {
+            let pivot = PlaylistGame(playlistID: playlistId, gameId: gameId)
+            try await pivot.save(on: req.db)
+        }
+
+        return .ok
+    }
+
+    // DELETE /api/playlists/:playlistId?userId=...
+    playlists.delete(":playlistId") { req async throws -> HTTPStatus in
+        guard let playlistId = req.parameters.get("playlistId", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "playlistId inválido")
+        }
+        let userId = try req.query.get(UUID.self, at: "userId")
+
+        guard let playlist = try await Playlist.query(on: req.db)
+            .filter(\.$id == playlistId)
+            .filter(\.$user.$id == userId)
+            .first()
+        else {
+            throw Abort(.notFound, reason: "Playlist no encontrada")
+        }
+
+        try await playlist.delete(on: req.db)
         return .noContent
     }
 

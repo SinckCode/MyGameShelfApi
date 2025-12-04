@@ -16,6 +16,10 @@ final class User: Model, Content, @unchecked Sendable {
     @Field(key: "password_hash")
     var passwordHash: String
 
+    // 🔹 Relación 1:N -> un usuario puede tener muchas playlists
+    @Children(for: \.$user)
+    var playlists: [Playlist]
+
     init() { }
 
     init(id: UUID? = nil, name: String, email: String, passwordHash: String) {
